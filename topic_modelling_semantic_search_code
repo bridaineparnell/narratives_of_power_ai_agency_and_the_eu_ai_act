@@ -1,0 +1,679 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+Import files from folders into a list for BERTopic
+
+# Install dependencies
+
+import os
+import pandas as pd
+import nltk
+import re
+import numpy as np
+import random
+
+# Create a master list of media files and company files
+
+master_list =  media_final + comp_files
+master_titles = media_titles + comp_titles
+
+Topic modelling with BERTopic
+
+# Install dependencies
+!pip install bertopic
+!pip install nbformat
+from bertopic import BERTopic
+
+Break docs into sentences
+
+# Tokenize and keep titles for analysis
+
+nltk.download('punkt')
+from typing import List, Tuple
+from nltk.tokenize import sent_tokenize
+
+def sentencize_texts(texts: List[str], titles: List[str]) -> Tuple[List[str], List[str]]:
+    """
+    Sentencize the texts and track their titles.
+
+    Args:
+        texts (List[str]): A list of text documents.
+        titles (List[str]): A list of titles corresponding to the text documents.
+
+    Returns:
+        List[str]: A list of sentencized texts.
+        List[str]: A list of titles corresponding to the sentencized texts.
+    """
+    docs = []
+    tracked_titles = []
+
+    for text, title in zip(texts, titles):
+        sentences = sent_tokenize(text)
+        # Filter out empty sentences
+        non_empty_sentences = [sentence for sentence in sentences if sentence.strip()]
+        docs.extend(non_empty_sentences)
+        tracked_titles.extend([title] * len(non_empty_sentences))
+
+    return docs, tracked_titles
+
+s_master_list, s_master_titles = sentencize_texts(master_list, master_titles)
+
+# Check for empty entries in s_master_list
+
+empty_entries = [doc for doc in s_master_list if not doc.strip()]
+print(f"Number of empty documents: {len(empty_entries)}")
+
+# Install dependencies
+
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+from bertopic.vectorizers import ClassTfidfTransformer
+
+# Create embeddings from the sentences
+
+from sentence_transformers import SentenceTransformer
+
+sentence_model = SentenceTransformer("all-mpnet-base-v2")
+embeddings = sentence_model.encode(s_master_list)
+
+# Get rid of common and stopwords
+
+from nltk.corpus import stopwords
+
+# Download the stopwords
+nltk.download('stopwords')
+
+# Get the list of NLTK stopwords
+nltk_stopwords = set(stopwords.words('english'))
+
+stopwords_list = list(nltk_stopwords)
+
+# Define your custom stopwords
+custom_stopwords = {
+    'microsoft', 'satya', 'nadella', 'microsofts', 'copilot', 'kevin', 'scott', 'windows', 'co', 'pilot', 'copilots', 'source',
+    'google', 'alphabet', 'googles', 'alphabets', 'openai', 'openais', 'chatgpt', 'chatgpts', 'gpt', 'gpd', 'gpts', 'lex', 'kara',
+    'nilay', 'metas', 'facebook', 'yep', 'yeah', 'well', 'indeed', 'shit', 'sam', 'altman', 'mira', 'murati', 'sundar', 'pichai',
+    'demis', 'hassabis', 'deepmind', 'gemini', 'meta', 'mark', 'zuckerberg', 'yann', 'lecun', 'metaverse', 'llama', 'nadellas',
+    'altmans', 'pichais', 'chad', 'chat', 'lot', 'yeh' , 'question', 'et', 'al'
+}
+
+# Combine NLTK stopwords with your custom stopwords
+all_stopwords = list(nltk_stopwords.union(custom_stopwords))
+
+# Process the text
+
+def preprocess_text(text):
+    # Remove all punctuation except for words
+    text = re.sub(r'[^\w\s]', ' ', text)
+    # Convert to lowercase
+    text = text.lower()
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    # Remove stopwords
+    text = ' '.join([word for word in text.split() if word not in custom_stopwords])
+    return text
+
+# Apply the cleaning function and filter out empty ones
+master = []
+cleaned_embeddings = []
+for doc, embedding in zip(s_master_list, embeddings):
+    cleaned_doc = preprocess_text(doc)
+    if cleaned_doc:  # Only add non-empty documents and corresponding embeddings
+        master.append(cleaned_doc)
+        cleaned_embeddings.append(embedding)
+
+# Convert cleaned_embeddings to numpy array if it's not already
+cleaned_embeddings = np.array(cleaned_embeddings)
+
+# Print a sample of cleaned documents to verify
+#print("Sample cleaned documents:")
+#for doc in master[:10]:
+   # print(f"'{doc}'")
+
+# Ensure cleaned text doesn't have commas or unexpected characters
+#for doc in master:
+   # assert ',' not in doc, f"Comma found in doc: {doc}"
+   # assert '  ' not in doc, f"Double space found in doc: {doc}"
+
+# Check if any cleaned documents are empty after cleaning
+empty_docs = [doc for doc in master if not doc.strip()]
+print(f"Number of empty documents after cleaning: {len(empty_docs)}")
+
+# Check
+
+print(master[90:100])
+
+# Define vectorizer
+
+vectorizer = CountVectorizer(
+    stop_words=all_stopwords,
+    max_df=0.85,
+    min_df=2,
+    max_features=10000
+)
+
+
+# Define UMAP and HDBSCAN models with adjusted parameters
+umap_model = UMAP(
+    n_neighbors=10,
+    n_components=6,
+    min_dist=0.1,
+    metric='cosine',
+    random_state=42
+)
+
+hdbscan_model = HDBSCAN(
+    min_cluster_size=10,
+    min_samples=6,
+    metric='euclidean',
+    cluster_selection_method='eom',
+    prediction_data=True
+)
+
+# Train the model with BERTopic
+
+s_model = BERTopic(
+    embedding_model=sentence_model,
+    umap_model=umap_model,
+    hdbscan_model=hdbscan_model,
+    vectorizer_model=vectorizer,
+).fit(master, cleaned_embeddings)
+
+s_model.get_topic_info().head(25)
+
+s_model.get_topic_info()[1:16]
+
+topic_info = s_model.get_topic_info()[1:16]
+
+# Convert and save file
+
+BERTopic_df = pd.DataFrame(topic_info)
+
+BERTopic_df.to_csv('/content/drive/MyDrive/.../BERTopic.csv', index=False)
+BERTopic_df.to_excel('/content/drive/MyDrive/.../BERTopic.xlsx', index=False)
+
+# Visualise topics
+
+# Transform the sentences using the trained model to get topics
+
+topics, probs = s_model.transform(s_master_list)
+
+# Create a DataFrame with titles and topics
+
+df = pd.DataFrame({'Title': s_master_titles, 'Topic': topics})
+
+# Aggregate topic counts by title
+topic_counts = df.groupby(['Title', 'Topic']).size().unstack(fill_value=0)
+
+# Filter for the first 15 topics
+first_15_topics = topic_counts.columns[1:16]
+topic_counts_filtered = topic_counts[first_15_topics]
+
+# Make and save a plot of results across every source
+
+# Get topic labels with the first three words
+topic_labels = {
+    topic: ', '.join([word for word, _ in s_model.get_topic(topic)[:3]]) if topic != -1 else 'Outlier'
+    for topic in first_15_topics
+}
+
+# Plot the aggregated topic counts for the first 15 topics
+fig, ax = plt.subplots(figsize=(15, 8))
+
+topic_counts_filtered.plot(kind='bar', stacked=True, ax=ax, colormap='tab20')
+
+# Update legend with topic titles
+handles, labels = ax.get_legend_handles_labels()
+labels = [topic_labels[int(label)] for label in labels]
+ax.legend(handles, labels, title='Topics', bbox_to_anchor=(1.05, 1), loc='upper left')
+
+ax.set_xlabel('Sources')
+ax.set_ylabel('Topic Counts')
+ax.set_title('Distribution of the First 15 Topics Across Document Titles')
+
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+
+# Save the plot to a file
+plt.savefig('/content/drive/MyDrive/.../topic_distribution_15.png', bbox_inches='tight')
+
+# Show the plot
+plt.show()
+
+
+Semantic search
+
+# Install dependencies
+
+!pip install sentence_transformers
+from sentence_transformers import SentenceTransformer, util
+
+!pip install torch
+import torch
+
+# Create seed topics
+
+determinism = [
+    "progress",
+    "advancement",
+    "inevitability",
+    "inevitable",
+    "disruption",
+    "transformation",
+    "evolution",
+    "breakthrough",
+    "singularity",
+    "future",
+    "enhancement",
+    "milestones",
+    "tech-driven change",
+    "paradigm shift",
+    "technological change",
+    "digital transformation",
+    "future-proof",
+    "technocentric",
+    "tech-centric",
+    "tech-optimism",
+    "techno-optimism",
+    "technological prowess"
+    "artificial general intelligence",
+    "superintelligence",
+    "agi"
+    "future of ai"
+]
+
+utopia = [
+    "utopia",
+    "profound benefits",
+    "major benefits",
+    "life-changing",
+    "transformative ai",
+    "revolution",
+    "ai-powered future",
+    "ai for good",
+    "ai for humanity",
+    "all humanity",
+    "enormous potential",
+    "ai-driven solutions",
+    "ai-driven future",
+    "productivity",
+    "economic growth",
+    "well-being",
+    "wellbeing",
+    "flourishing",
+    "abundance",
+    "major challenges",
+    "global challenges",
+    "tackle",
+    "solve",
+    "complex"
+    "better world",
+    "ai and human progress",
+    "intelligent future",
+    "prosperity"
+]
+
+dystopia = [
+    "dystopia",
+    "apocalypse",
+    "control",
+    "surveillance",
+    "domination",
+    "disaster",
+    "oppression",
+    "exploitation",
+    "overreach",
+    "surveillance state",
+    "ai fear",
+    "isolation",
+    "social unrest",
+    "totalitarianism",
+    "chaos",
+    "societal collapse",
+    "crisis",
+    "catastrophe",
+    "destruction",
+    "dystopian future",
+    "authoritarianism",
+    "instability",
+    "extinction risk",
+    "existential risk",
+    "power imbalance",
+    "uncontrollable"
+]
+
+race = [
+    "global competition",
+    "global ai race",
+    "supremacy",
+    "dominance",
+    "leadership",
+    "ai first",
+    "innovation race",
+    "technological edge",
+    "strategic advantage",
+    "power struggle",
+    "geopolitical race",
+    "national security",
+    "China",
+    "strategic importance",
+    "development race",
+    "race for ai leadership",
+    "ai global dominance",
+    "strategic race",
+    "technological superiority",
+    "leading ai development"
+]
+
+seed_topics = {"determinism": determinism, "race": race, "utopia": utopia, "dystopia": dystopia}
+
+# Get HuggingFace token
+
+# Set your secret token
+os.environ['HF_TOKEN'] = 'xxxx'
+
+# Set the parameters for the sentence transformer and embeddings
+
+model = SentenceTransformer("all-mpnet-base-v2")
+
+# Generate embeddings for the documents
+sd_embeddings = model.encode(master_list, convert_to_tensor=True)
+title_embeddings = model.encode(master_titles, convert_to_tensor=True)
+
+# Generate embeddings for seed topic examples
+seed_topic_embeddings = {topic: model.encode(examples, convert_to_tensor=True) for topic, examples in seed_topics.items()}
+len(sd_embeddings)
+
+# Create a function to iterate across the results of the semantic search, gathering a count of how many documents match,
+# what the matched phrases are, a snippet of the document that was matched and the total number of docs that match,
+# by topic and title and in total.
+
+def find_docs_counts(document_embeddings, title_embeddings, seed_topic_embeddings, documents, titles, model, threshold=0.5):
+    document_topic_matches = {}
+    match_counts = {topic: {} for topic in seed_topic_embeddings.keys()}
+    unique_docs = {topic: set() for topic in seed_topic_embeddings.keys()}
+    global_unique_docs = set()  # Track unique documents across all topics
+
+    # Ensure embeddings are on the CPU
+    document_embeddings = document_embeddings.cpu().numpy()
+    title_embeddings = title_embeddings.cpu().numpy()
+    seed_topic_embeddings = {topic: embedding.cpu().numpy() for topic, embedding in seed_topic_embeddings.items()}
+
+    # Segment documents into sentences
+    segmented_docs = [doc.split('. ') for doc in documents]
+    phrase_embeddings = [model.encode(seg, convert_to_tensor=True).cpu().numpy() for seg in segmented_docs]
+
+    for topic, seed_embeddings in seed_topic_embeddings.items():
+        for doc_idx, (doc_embedding, title_embedding, phrases, phrase_embedding) in enumerate(zip(document_embeddings, title_embeddings, segmented_docs, phrase_embeddings)):
+            doc_matched = False  # Track if the document matches for the current topic
+            max_similarity = 0
+            best_matching_phrases = []
+
+            for seed_embedding in seed_embeddings:
+                # Precompute similarities
+                similarity_doc = util.cos_sim(torch.tensor(doc_embedding), torch.tensor(seed_embedding)).item()
+                similarity_title = util.cos_sim(torch.tensor(title_embedding), torch.tensor(seed_embedding)).item()
+                similarity = max(similarity_doc, similarity_title)
+
+                for phrase, phrase_emb in zip(phrases, phrase_embedding):
+                    similarity_phrase = util.cos_sim(torch.tensor(phrase_emb), torch.tensor(seed_embedding)).item()
+                    if similarity_phrase > threshold:
+                        best_matching_phrases.append((phrase, similarity_phrase))
+                        doc_matched = True  # Mark the document as matched for the current topic
+
+                if similarity > threshold:
+                    if similarity > max_similarity:
+                        max_similarity = similarity
+                    doc_matched = True
+
+            if best_matching_phrases:
+                if titles[doc_idx] not in document_topic_matches:
+                    document_topic_matches[titles[doc_idx]] = {}
+                if topic not in document_topic_matches[titles[doc_idx]]:
+                    document_topic_matches[titles[doc_idx]][topic] = []
+                document_topic_matches[titles[doc_idx]][topic].append((documents[doc_idx], best_matching_phrases))
+
+            if doc_matched:
+                unique_docs[topic].add(documents[doc_idx])  # Track unique documents by content for the current topic
+                global_unique_docs.add(documents[doc_idx])  # Track globally unique documents by content
+                if titles[doc_idx] in match_counts[topic]:
+                    match_counts[topic][titles[doc_idx]] += 1
+                else:
+                    match_counts[topic][titles[doc_idx]] = 1
+
+    return document_topic_matches, match_counts, unique_docs, global_unique_docs
+
+# Ensure embeddings and models are on the same device
+device = 'cpu'
+
+# Find similar documents and count matches
+document_topic_matches, match_counts, unique_docs, global_unique_docs = find_docs_counts(
+    sd_embeddings, title_embeddings, seed_topic_embeddings, master_list, master_titles, model, threshold=0.5
+)
+
+# Print match counts for each topic
+for topic, counts in match_counts.items():
+    print(f"Match counts for topic '{topic}':")
+    for title, count in counts.items():
+        print(f"Title: {title}, Count: {count}")
+    print()
+
+# Print total count of unique matching documents for each topic
+for topic, docs in unique_docs.items():
+    total_doc_count = len(docs)
+    print(f"Total count of unique matching documents for topic '{topic}': {total_doc_count}")
+
+# Print total count of unique matching documents across all topics
+print(f"Total count of unique matching documents across all topics: {len(global_unique_docs)}")
+
+# Summing the match counts for validation
+total_match_counts = {topic: sum(counts.values()) for topic, counts in match_counts.items()}
+for topic, total_count in total_match_counts.items():
+    print(f"Total summed match counts for topic '{topic}': {total_count}")
+
+# Create DataFrame to store the results
+data = []
+
+# Collect documents matching topic and their matched phrases per topic
+for title, topics in document_topic_matches.items():
+    for topic, matches in topics.items():
+        for doc, phrases in matches:
+            if phrases:  # Check if phrases list is not empty
+                data.append({
+                    "Title": title,
+                    "Topic": topic,
+                    "Document Snippet": doc[:400],
+                    "Matched Phrases": [p[0] for p in phrases[:5]],  # Top 5 matched phrases for brevity
+                    "Similarity": max([p[1] for p in phrases])
+                })
+
+# Create DataFrame
+df3 = pd.DataFrame(data)
+# Function is counting some documents twice within one topic, to fix this, find and erase the duplicates
+
+def check_duplicates(df):
+    # Create a flag for duplicates within each group of 'Title' and 'Topic'
+    df['is_duplicate'] = df.duplicated(subset=['Title', 'Topic', 'Document Snippet'], keep=False)
+
+    # Filter to only show duplicates
+    duplicates = df[df['is_duplicate']]
+
+    # Drop the flag column for a clean output
+    df.drop(columns=['is_duplicate'], inplace=True)
+
+    return duplicates
+
+# Check for duplicates
+duplicates = check_duplicates(df3)
+
+# Print the number of duplicates found and the details
+num_duplicates = len(duplicates)
+print(f"Number of duplicate document snippets found: {num_duplicates}")
+if num_duplicates > 0:
+    print(duplicates)
+
+# Create a new dataframe with the duplicates dropped and verify everything works
+
+# Drop duplicates based on 'Title', 'Topic', and 'Document Snippet'
+df4 = df3.drop_duplicates(subset=['Title', 'Topic', 'Document Snippet'])
+
+# Verify the count of unique documents per topic and title
+unique_docs_per_title_topic = df3.groupby(['Topic', 'Title'])['Document Snippet'].nunique()
+print("Unique document counts per topic and title (after removing duplicates):")
+print(unique_docs_per_title_topic)
+
+# Verify the count of unique documents per topic
+unique_docs_per_topic = df4.groupby('Topic')['Document Snippet'].nunique()
+print("Unique document counts per topic (after removing duplicates):")
+print(unique_docs_per_topic)
+
+# Verify the global count of unique documents
+unique_global_docs = df4['Document Snippet'].nunique()
+print(f"Total unique document count across all topics (after removing duplicates): {unique_global_docs}")
+
+# Summing the match counts for validation
+total_match_counts = df4.groupby(['Title', 'Topic']).size().groupby('Topic').sum()
+print("Total summed match counts per topic (after removing duplicates):")
+print(total_match_counts)
+
+# Display the first few rows of the DataFrame after removing duplicates
+print(df4.head())
+
+# Now add a group title as well so that I can create visuals for each company
+
+# Define the mapping of titles to group titles
+title_to_group = {
+    'Microsoft Media': 'Microsoft',
+    'Microsoft Blog': 'Microsoft',
+    'Microsoft Newsroom': 'Microsoft',
+    'Meta Media': 'Meta',
+    'Meta AI Blog': 'Meta',
+    'Meta Newsroom': 'Meta',
+    'Google Media': 'Google',
+    'Google Blog': 'Google',
+    'OpenAI Media': 'OpenAI',
+    'OpenAI Blog': 'OpenAI'
+}
+
+# Add the 'Group Title' column
+df4.loc[:, 'Group Title'] = df4['Title'].map(title_to_group)
+
+# And change the topic 'race' to 'arms race'
+df4.loc[df4['Topic'] == 'race', 'Topic'] = 'arms race'
+
+df4.head()
+len(df4)
+
+# Get a random sample for critical discourse analysis
+
+def get_top_and_sample(df, top_n=10, sample_n=2):
+    top_docs = []
+    selected_documents = set()
+
+    # Group by 'Topic' and 'Group Title'
+    grouped = df.groupby(['Topic', 'Group Title'])
+
+    for name, group in grouped:
+        # Sort the group by 'Similarity' in descending order and take top N
+        top_group = group.sort_values(by='Similarity', ascending=False).head(top_n)
+
+        # Sample documents and ensure no duplicates in the final sample
+        sample_group = []
+        for idx, row in top_group.iterrows():
+            if row['Document Snippet'] not in selected_documents:
+                sample_group.append(row)
+                selected_documents.add(row['Document Snippet'])
+            if len(sample_group) == sample_n:
+                break
+
+        sample_df = pd.DataFrame(sample_group)
+        top_docs.append(sample_df)
+
+    # Put the samples into a single DataFrame
+    if top_docs:
+        top_df = pd.concat(top_docs)
+    else:
+        top_df = pd.DataFrame(columns=['Topic', 'Similarity', 'Group Title', 'Title', 'Document Snippet'])
+
+    # Select and rename the relevant columns for clarity
+    top_df = top_df[['Topic', 'Similarity', 'Group Title', 'Title', 'Document Snippet']]
+
+    return top_df
+
+# Example usage
+top_df = get_top_and_sample(df4)
+
+# Save the result to a CSV file
+top_df.to_csv('/content/drive/MyDrive/.../Random_sample.csv', index=False)
+
+# Check
+
+top_df
+
+Visualise the findings
+
+# Install dependencies
+
+!pip install matplotlib
+!pip install squarify
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+import squarify
+
+# Bar chart by topic matches
+
+# Calculate the number of matches per topic
+match_counts = df4.groupby('Topic').size().reset_index(name='Match Count')
+
+# Create the bar chart
+plt.figure(figsize=(10, 6))
+barplot = sns.barplot(x='Topic', y='Match Count', data=match_counts, palette='viridis')
+plt.title('Total Matches per Topic')
+plt.xlabel('Topic')
+plt.ylabel('Total Matches')
+
+# Annotate bars with counts
+for index, row in match_counts.iterrows():
+    barplot.text(row.name, row['Match Count'], row['Match Count'], color='black', ha="center")
+
+# Save the figure to a file
+plt.savefig('/content/drive/MyDrive/.../total_match_counts_per_topic.png', bbox_inches='tight')
+
+# Show the plot
+plt.show()
+
+# Bar chart by topic and title
+
+# Calculate the number of matches per topic
+match_counts = df4.groupby(['Topic', 'Title']).size().reset_index(name='Match Count')
+
+# Clear any existing figures
+plt.clf()
+plt.close()
+
+# Create the bar chart
+plt.figure(figsize=(14, 8))
+barplot = sns.barplot(x='Topic', y='Match Count', hue='Title', data=match_counts, palette='viridis')
+plt.title('Matches by Topic and Blog')
+plt.xlabel('Topic')
+plt.ylabel('Match Count')
+
+# Manually update the legend
+handles, labels = barplot.get_legend_handles_labels()
+plt.legend(handles, labels, title='Title', bbox_to_anchor=(1.05, 1), loc='upper left')
+
+# Annotate bars with counts
+for p in barplot.patches:
+    height = p.get_height()
+    barplot.annotate(f'{int(height)}', (p.get_x() + p.get_width() / 2., height),
+                     ha='center', va='center', xytext=(0, 5), textcoords='offset points')
+
+# Save the figure to a file
+plt.savefig('/content/drive/MyDrive/.../Matches by Topic and Title.png', bbox_inches='tight')
+
+# Show the plot
+plt.show()
+
+
